@@ -13,6 +13,6 @@
       monitor:
         image: camunda/zeebe-simple-monitor:latest
         ports:
-          - "9000:8080"
+          - "9090:8080"
         links:
           - zeebe

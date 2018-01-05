@@ -7,6 +7,6 @@
 3) To run the program: `go run src/main.go`
 This will deploy and start an easy process.
 
-4) Check Monitor on: http://127.0.0.1:9000/
+4) Check Monitor on: http://127.0.0.1:9090/
 
 More infos: https://docs.zeebe.io/go-client/get-started.html
