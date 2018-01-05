@@ -1,0 +1,5 @@
+name: simpleProcess
+
+tasks:
+    - id: task-a-id
+      type: task-a
