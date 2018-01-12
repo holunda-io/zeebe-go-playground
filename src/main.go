@@ -11,7 +11,7 @@ import (
 )
 
 const topicName = "default-topic"
-const BrokerAddr = "127.0.0.1:51015"
+const BrokerAddr = "0.0.0.0:51015"
 const processFileBpmn = "src/simpleProcess.bpmn"
 const processFileYaml = "src/simpleProcess.yml"
 const processId = "simpleProcess"
@@ -26,8 +26,8 @@ func main() {
 
 	loadTopologie(zbClient)
 
-	//deployProcessBpmn(zbClient)
-	deployProcessYaml(zbClient)
+	deployProcessBpmn(zbClient)
+	//deployProcessYaml(zbClient) <- is working but than you don't see a BPMN in Monitor
 
 	startProcess(zbClient)
 

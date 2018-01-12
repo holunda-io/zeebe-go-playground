@@ -10,9 +10,3 @@ services:
       - "51015:51015"
       - "51016:51016"
       - "51017:51017"
-  monitor:
-    image: camunda/zeebe-simple-monitor:latest
-    ports:
-      - "9090:8080"
-    links:
-      - zeebe
