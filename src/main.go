@@ -7,7 +7,10 @@ import (
 	"encoding/json"
 	"os/signal"
 	"os"
-	"github.com/zeebe-io/zbc-go/zbc/zbmsgpack"
+	"github.com/zeebe-io/zbc-go/zbc/models/zbsubscriptions"
+	"github.com/zeebe-io/zbc-go/zbc/services/zbsubscribe"
+	"github.com/zeebe-io/zbc-go/zbc/common"
+	"log"
 )
 
 const topicName = "default-topic"
@@ -24,18 +27,20 @@ func main() {
 
 	zbClient := createNewClient()
 
-	loadTopologie(zbClient)
+	createDefaultTopicIfNotExists(zbClient)
+
+	outputTopologie(zbClient)
 
 	deployProcessBpmn(zbClient)
 	//deployProcessYaml(zbClient) <- is working but than you don't see a BPMN in Monitor
 
 	startProcess(zbClient)
 
-	subscriptionCh, subscription := createSubscriptionForTaskA(zbClient)
+	subscription := createSubscriptionForTaskA(zbClient)
 
-	startGoRoutineToCloseSubscriptionOnExit(zbClient, subscription)
+	startGoRoutineToCloseSubscriptionOnExit(subscription)
 
-	waitForTaskAndComplete(subscriptionCh, zbClient)
+	subscription.Start()
 }
 
 func createNewClient() (*zbc.Client) {
@@ -49,10 +54,10 @@ func createNewClient() (*zbc.Client) {
 	return zbClient
 }
 
-func loadTopologie(zbClient *zbc.Client) {
+func outputTopologie(zbClient *zbc.Client) {
 	fmt.Println("Load broker topologie")
 
-	topology, err := zbClient.Topology()
+	topology, err := zbClient.RefreshTopology()
 	if err != nil {
 		panic(err)
 	}
@@ -61,12 +66,39 @@ func loadTopologie(zbClient *zbc.Client) {
 	fmt.Println("Topologie: ", string(b))
 }
 
+func createDefaultTopicIfNotExists(zbClient *zbc.Client) {
+	log.Printf("Create new topic '%s'", topicName)
+
+	if topicExists(zbClient, topicName) {
+		log.Println("Topic does already exist")
+		return
+	}
+
+	topic, err := zbClient.CreateTopic(topicName, 1)
+	if err != nil {
+		log.Fatal("Could not create topic")
+		panic(err)
+	}
+
+	log.Println("Created topic: ", topic)
+}
+
+func topicExists(zbClient *zbc.Client, topicName string) bool {
+	topology, err := zbClient.RefreshTopology()
+	if err != nil {
+		log.Fatal("Error happens while loading topology")
+		panic(err)
+	}
+
+	return topology.PartitionIDByTopicName[topicName] != nil
+}
+
 func deployProcessBpmn(zbClient *zbc.Client) {
-	deployProcess(zbClient, zbc.BpmnXml, processFileBpmn)
+	deployProcess(zbClient, zbcommon.BpmnXml, processFileBpmn)
 }
 
 func deployProcessYaml(zbClient *zbc.Client) {
-	deployProcess(zbClient, zbc.YamlWorkflow, processFileYaml)
+	deployProcess(zbClient, zbcommon.YamlWorkflow, processFileYaml)
 }
 
 func deployProcess(zbClient *zbc.Client, resourceType, path string) {
@@ -97,37 +129,35 @@ func startProcess(zbClient *zbc.Client) {
 	fmt.Println("Start Process responce: ", msg.String())
 }
 
-func createSubscriptionForTaskA(zbClient *zbc.Client) (chan *zbc.SubscriptionEvent, *zbmsgpack.TaskSubscription) {
+func createSubscriptionForTaskA(zbClient *zbc.Client) *zbsubscribe.TaskSubscription {
 	fmt.Println("Open task subscription for Task A")
 
-	subscriptionCh, subscription, _ := zbClient.TaskConsumer(topicName, "lockOwner", taskA)
-	return subscriptionCh, subscription
-}
-
-func waitForTaskAndComplete(subscriptionCh chan *zbc.SubscriptionEvent, zbClient *zbc.Client) {
-	for {
-		fmt.Println("Wait for Task A")
-
-		message := <-subscriptionCh
-		fmt.Println("Message of task A subscription: ", message.String())
+	subscription, err := zbClient.TaskSubscription(topicName, "lockOwner", taskA, 32, func(clientApi zbsubscribe.ZeebeAPI, event *zbsubscriptions.SubscriptionEvent) {
+		fmt.Println("Message of task A subscription: ", event.String())
 
 		// complete task after processing
-		response, _ := zbClient.CompleteTask(message)
+		response, _ := clientApi.CompleteTask(event)
 		fmt.Println("Complete Task Responce: ", response)
+	})
+
+	if err != nil {
+		panic("Unable to open subscription")
 	}
+
+	return subscription
 }
 
-func startGoRoutineToCloseSubscriptionOnExit(zbClient *zbc.Client, subscription *zbmsgpack.TaskSubscription) {
-	fmt.Println("Create go routine which waits for app interrrupt")
-
+func startGoRoutineToCloseSubscriptionOnExit(subscription *zbsubscribe.TaskSubscription) {
 	osCh := make(chan os.Signal, 1)
 	signal.Notify(osCh, os.Interrupt)
 	go func() {
+		fmt.Println("Create go routine which waits for app interrrupt")
+
 		<-osCh
 		fmt.Println("Closing subscription.")
-		_, err := zbClient.CloseTaskSubscription(subscription)
+		err := subscription.Close()
 		if err != nil {
-			fmt.Println("failed to close subscription: ", err)
+			fmt.Println("Failed to close subscription: ", err)
 		} else {
 			fmt.Println("Subscription closed.")
 		}
